@@ -1,0 +1,610 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Rooms on Autopilot</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap">
+<style>
+/* Layout: a fixed 1600×900 stage scaled to fit, one scene at a time, controls below. Single deliberate look. */
+:root{
+  --night:#0F1218; --night2:#1A1F2B; --plaster:#ECEFF2; --paper:#F9FAFB; --ink:#11141B; --ink2:#4A5160; --mute:#6A7180;
+  --line:#D2D8E0; --blue:#2142D9; --blue-soft:#DFE5FC; --blue-light:#9FB3FF;
+  --sun:#E8692F; --sun-ink:#A84513; --sun-soft:#FCE7DB; --green:#1C7A4A; --green-soft:#DCF1E4;
+  --display:'Bricolage Grotesque','Manrope',Arial,sans-serif; --body:'Manrope',Arial,sans-serif; --mono:'JetBrains Mono',ui-monospace,Menlo,monospace;
+  color-scheme:dark;
+}
+html,body{height:100%}
+body{background:#090B10;color:var(--plaster);font-family:var(--body);overflow:hidden}
+#app{height:100%;display:flex;flex-direction:column}
+#hint{display:none;padding:8px max(16px,env(safe-area-inset-right,0px)) 8px max(16px,env(safe-area-inset-left,0px));background:var(--blue);color:#fff;font-size:13px;font-weight:600;text-align:center}
+@media (orientation:portrait) and (max-width:760px){#hint{display:block}}
+#fit{position:relative;flex:1;min-height:0;overflow:hidden}
+#stage{position:absolute;left:50%;top:50%;width:1600px;height:900px;transform-origin:0 0;border-radius:6px;overflow:hidden;background:var(--plaster);cursor:pointer}
+#bar{display:flex;align-items:center;gap:12px;padding:10px max(16px,env(safe-area-inset-right,0px)) 12px max(16px,env(safe-area-inset-left,0px));}
+#bar button{height:40px;min-width:40px;padding:0 12px;border-radius:10px;border:1px solid #2A3040;background:#151924;color:#E8ECF4;font:600 13px var(--body);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+#bar button:hover{background:#1E2433}
+#bar button:focus-visible{outline:2px solid var(--blue-light);outline-offset:2px}
+#bar .play{background:var(--blue);border-color:var(--blue);color:#fff}
+#segs{flex:1;display:flex;gap:4px;min-width:0}
+#segs i{flex:1;height:4px;border-radius:2px;background:#262C3A;overflow:hidden;position:relative;cursor:pointer}
+#segs i.done{background:#5A6A9E}
+#segs i b{position:absolute;inset:0;width:0;background:var(--blue-light)}
+#segs i.cur b{width:100%}
+#segs.auto i.cur b{animation:fill var(--dur,8s) linear both}
+@keyframes fill{from{width:0}to{width:100%}}
+#count{font:600 13px var(--mono);color:#9AA3B5;white-space:nowrap}
+
+/* scenes */
+.scene{position:absolute;inset:0;padding:72px 96px;box-sizing:border-box;visibility:hidden;opacity:0;transition:opacity .5s ease,visibility 0s .5s;display:flex;flex-direction:column;gap:36px}
+.scene.on{visibility:visible;opacity:1;transition:opacity .5s ease}
+.dark{background:var(--night);color:var(--plaster)}
+.light{background:var(--plaster);color:var(--ink)}
+.paperbg{background:var(--paper);color:var(--ink)}
+.bluebg{background:var(--blue);color:#fff}
+.a{opacity:0}
+.scene.on .a{animation:var(--k,rise) .9s cubic-bezier(.2,.8,.2,1) both;animation-delay:calc(var(--d,0) * 1s)}
+@keyframes rise{from{opacity:0;transform:translateY(28px)}to{opacity:1;transform:none}}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+@keyframes pop{0%{opacity:0;transform:scale(.8)}70%{opacity:1;transform:scale(1.04)}100%{opacity:1;transform:none}}
+@keyframes fromleft{from{opacity:0;transform:translateX(-60px)}to{opacity:1;transform:none}}
+@keyframes fromright{from{opacity:0;transform:translateX(60px)}to{opacity:1;transform:none}}
+@keyframes gather{0%{opacity:1;transform:translate(var(--x),var(--y)) rotate(var(--r))}100%{opacity:1;transform:none}}
+@keyframes grow{from{opacity:1;width:0}to{opacity:1}}
+@keyframes drawx{from{opacity:1;transform:scaleX(0)}to{opacity:1;transform:scaleX(1)}}
+@keyframes typing{from{opacity:1;width:0}to{opacity:1;width:var(--w)}}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(232,105,47,.45)}50%{box-shadow:0 0 0 14px rgba(232,105,47,0)}}
+@media (prefers-reduced-motion:reduce){.scene.on .a{animation:none;opacity:1}.scene{transition:none}}
+
+.eyebrow{font:600 18px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--blue)}
+.dark .eyebrow{color:var(--blue-light)}
+.h1{font:800 104px/1.0 var(--display);letter-spacing:-3px;text-wrap:balance}
+.h2{font:800 62px/1.06 var(--display);letter-spacing:-1.6px;text-wrap:balance;max-width:1200px}
+.lead{font:500 27px/1.45 var(--body);color:var(--ink2);max-width:640px}
+.dark .lead{color:#B9C1D0}
+.small{font:500 20px/1.45 var(--body);color:var(--mute)}
+.dark .small{color:#8E97A8}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:22px;padding:26px}
+.light .card{background:#fff}
+.row{display:flex;gap:28px}
+.col{display:flex;flex-direction:column;gap:16px}
+.tag{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;font:700 16px var(--body)}
+.t-blue{background:var(--blue-soft);color:var(--blue)}
+.t-sun{background:var(--sun-soft);color:var(--sun-ink)}
+.t-green{background:var(--green-soft);color:var(--green)}
+.t-grey{background:#E6E9EE;color:#3C4351}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.foot{position:absolute;left:96px;right:96px;bottom:34px;display:flex;justify-content:space-between;font:600 15px var(--mono);letter-spacing:.06em;color:var(--mute)}
+.dark .foot,.bluebg .foot{color:#7F89A0}
+.bluebg .foot{color:#C9D3FF}
+.ico{width:34px;height:34px;flex:none}
+
+/* S1 rooms */
+.rooms{display:grid;grid-template-columns:repeat(4,110px);gap:16px}
+.room{height:110px;border-radius:18px;background:#1D2433;border:1px solid #2C3446;display:flex;flex-direction:column;justify-content:space-between;padding:14px;box-sizing:border-box;font:600 15px var(--mono);color:#9AA6BF}
+.room b{font:700 19px var(--body);color:#E6EAF2}
+.room.ok{background:#1C2B5F;border-color:#2F49A8}
+.room.late{background:#3A2216;border-color:#8A4320}
+.room.late b{color:#FFC6A8}
+.room.free{background:transparent;border:2px dashed var(--blue-light)}
+
+/* S2 chaos */
+.chip{display:flex;align-items:center;gap:14px;padding:18px 22px;border-radius:16px;background:#fff;border:1px solid var(--line);font:700 24px var(--body);color:var(--ink);box-shadow:0 10px 30px rgba(17,20,27,.08)}
+.screen{border-radius:28px;background:var(--night);padding:28px;display:flex;flex-direction:column;gap:12px;width:560px;box-sizing:border-box}
+
+/* devices */
+.laptop{width:760px;border-radius:22px 22px 6px 6px;background:#1B2130;padding:16px;box-sizing:border-box}
+.lscreen{background:var(--plaster);border-radius:10px;height:400px;display:flex;overflow:hidden}
+.lside{width:150px;background:#F7F8FA;border-right:1px solid var(--line);padding:16px 12px;display:flex;flex-direction:column;gap:10px}
+.lside i{display:block;height:12px;border-radius:6px;background:#DDE2E9}
+.lside i.on{background:var(--ink)}
+.lmain{flex:1;padding:18px;display:flex;flex-direction:column;gap:12px}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.kpi{background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px;font:600 12px var(--body);color:var(--mute);display:flex;flex-direction:column;gap:4px}
+.kpi b{font:600 20px var(--mono);color:var(--ink)}
+.lbase{height:14px;width:820px;background:#2A3142;border-radius:0 0 16px 16px;margin-left:-30px}
+.phone{width:300px;height:600px;border-radius:44px;background:#11141B;padding:12px;box-sizing:border-box;flex:none}
+.pscreen{height:100%;border-radius:34px;background:var(--plaster);padding:26px 16px 16px;box-sizing:border-box;display:flex;flex-direction:column;gap:12px;color:var(--ink);position:relative;overflow:hidden}
+
+/* bars */
+.split{display:flex;flex-direction:column;gap:16px}
+.srow{display:grid;grid-template-columns:230px 1fr 110px;align-items:center;gap:16px;font:600 22px var(--body)}
+.track{height:16px;border-radius:8px;background:#E3E7ED;overflow:hidden}
+.track i{display:block;height:100%;border-radius:8px;background:var(--blue)}
+.scene.on .track i{animation:grow 1.2s cubic-bezier(.2,.8,.2,1) both;animation-delay:calc(var(--d,0) * 1s)}
+
+/* timeline */
+.tl{position:relative;display:grid;grid-template-columns:repeat(5,1fr);gap:20px;padding-top:44px}
+.tl .rail{position:absolute;left:0;right:0;top:12px;height:4px;background:var(--blue);transform-origin:left;border-radius:2px}
+.tl .dot{position:absolute;top:-44px;left:0;width:28px;height:28px;border-radius:14px;background:var(--plaster);border:4px solid var(--blue);box-sizing:border-box}
+.tl .step{position:relative;display:flex;flex-direction:column;gap:10px}
+
+/* chat */
+.bub{max-width:460px;padding:16px 20px;border-radius:20px;font:500 21px/1.4 var(--body)}
+.bub.in{background:#fff;border:1px solid var(--line);border-bottom-left-radius:6px;align-self:flex-start;color:var(--ink)}
+.bub.out{background:var(--blue);color:#fff;border-bottom-right-radius:6px;align-self:flex-end}
+.bub small{display:block;font:600 14px var(--mono);opacity:.7;margin-bottom:4px}
+
+/* agents */
+.team{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;flex:1}
+.teamcol{display:flex;flex-direction:column;gap:12px}
+.teamhead{display:flex;align-items:center;gap:10px;font:700 20px var(--mono);letter-spacing:.08em;text-transform:uppercase;padding-bottom:6px}
+.agent{display:flex;gap:14px;align-items:flex-start;padding:16px 18px;border-radius:16px;background:var(--night2);border:1px solid #2A3142}
+.agent .av{width:44px;height:44px;border-radius:12px;flex:none;display:flex;align-items:center;justify-content:center}
+.agent b{display:block;font:700 22px var(--body);color:#F2F4F8}
+.agent span{display:block;font:500 17px/1.4 var(--body);color:#A9B2C3;margin-top:2px}
+.agent.new{border-color:#7A3A18}
+.newpill{font:700 12px var(--mono);letter-spacing:.08em;padding:3px 8px;border-radius:6px;background:var(--sun);color:#1A0E07;margin-left:8px;vertical-align:3px}
+
+.listing{display:grid;grid-template-columns:130px 1fr 130px;gap:18px;align-items:center;padding:18px;border-radius:18px;background:#fff;border:1px solid var(--line)}
+.thumb{height:96px;border-radius:12px;background:linear-gradient(135deg,#DCE3EE,#C7D1E0);position:relative;overflow:hidden}
+.thumb::after{content:"";position:absolute;left:18px;right:18px;bottom:0;height:46px;background:#AEBBD0;border-radius:6px 6px 0 0}
+.score{width:110px;height:110px;border-radius:55px;display:flex;flex-direction:column;align-items:center;justify-content:center;font:600 14px var(--mono);color:var(--mute)}
+.score b{font:700 40px var(--display);color:var(--ink)}
+.kv{display:flex;flex-wrap:wrap;gap:6px 18px;font:500 18px var(--body);color:var(--ink2)}
+.kv strong{color:var(--ink);font-weight:700}
+.search{display:flex;align-items:center;gap:14px;padding:16px 20px;border-radius:16px;background:var(--night);color:#E8ECF4;font:600 22px var(--mono)}
+.type{display:inline-block;overflow:hidden;white-space:nowrap;vertical-align:bottom}
+.scene.on .type{animation:typing 1.6s steps(var(--n)) both;animation-delay:calc(var(--d,0) * 1s)}
+.mail{background:#fff;border:1px solid var(--line);border-radius:18px;overflow:hidden}
+.mail .mh{padding:14px 20px;border-bottom:1px solid var(--line);display:grid;grid-template-columns:80px 1fr;gap:6px;font:500 18px var(--body);color:var(--ink2)}
+.mail .mh b{color:var(--ink)}
+.mail .mb{padding:16px 20px;font:500 19px/1.5 var(--body);color:var(--ink)}
+.alert{display:flex;align-items:center;gap:14px;padding:16px 20px;border-radius:16px;background:var(--sun-soft);color:var(--sun-ink);font:700 22px var(--body)}
+.alert .live{width:14px;height:14px;border-radius:7px;background:var(--sun);flex:none}
+.scene.on .alert .live{animation:pulse 1.6s ease-in-out infinite}
+.feat{display:grid;grid-template-columns:repeat(4,1fr);gap:18px}
+.feat .card{padding:22px;display:flex;flex-direction:column;gap:8px}
+.feat h4{font:700 23px var(--body);display:flex;align-items:center;gap:10px}
+.feat p{font:500 18px/1.42 var(--body);color:var(--ink2)}
+.phase{display:flex;flex-direction:column;gap:14px}
+.phase ul{list-style:none;padding:0;display:flex;flex-direction:column;gap:10px;font:500 21px var(--body);color:var(--ink2)}
+.phase li{display:flex;gap:10px;align-items:flex-start}
+.phase li::before{content:"";width:8px;height:8px;border-radius:4px;background:var(--blue);margin-top:11px;flex:none}
+</style>
+
+<style>*{box-sizing:border-box}body{margin:0}</style>
+</head>
+<body>
+<div id="app">
+  <div id="hint">Turn your phone sideways for the full presentation</div>
+  <div id="fit">
+    <div id="stage" aria-live="polite">
+
+<!-- 1 COVER -->
+<section class="scene dark" data-dur="8" aria-label="Cover">
+  <div class="row" style="flex:1;align-items:center;gap:80px">
+    <div class="col" style="flex:1;gap:30px">
+      <div class="eyebrow a" style="--d:.1">Proposal for [Client name] · Athens</div>
+      <div class="h1 a" style="--d:.25">Every room you rent, on autopilot.</div>
+      <div class="lead a" style="--d:.5">One platform for rent, bills, AADE, tenants and repairs, with a team of twelve AI agents doing the routine work. You approve. They handle the rest.</div>
+    </div>
+    <div class="rooms" aria-hidden="true">
+      <div class="room ok a" style="--k:pop;--d:.6"><span>KYP</span><b>Elena</b></div>
+      <div class="room ok a" style="--k:pop;--d:.66"><span>KYP</span><b>Youssef</b></div>
+      <div class="room late a" style="--k:pop;--d:.72"><span>KYP</span><b>Marco</b></div>
+      <div class="room ok a" style="--k:pop;--d:.78"><span>KYP</span><b>Anna</b></div>
+      <div class="room ok a" style="--k:pop;--d:.84"><span>KYP</span><b>Lina</b></div>
+      <div class="room ok a" style="--k:pop;--d:.9"><span>PAN</span><b>Sofia</b></div>
+      <div class="room ok a" style="--k:pop;--d:.96"><span>PAN</span><b>Karim</b></div>
+      <div class="room ok a" style="--k:pop;--d:1.02"><span>PAN</span><b>Jonas</b></div>
+      <div class="room free a" style="--k:pop;--d:1.08"><span>PAN</span><b>Free</b></div>
+      <div class="room ok a" style="--k:pop;--d:1.14"><span>EXA</span><b>Dimitra</b></div>
+      <div class="room ok a" style="--k:pop;--d:1.2"><span>EXA</span><b>Paul</b></div>
+      <div class="room late a" style="--k:pop;--d:1.26"><span>EXA</span><b>Ines</b></div>
+    </div>
+  </div>
+  <div class="foot a" style="--k:fade;--d:1.4"><span>[YOUR COMPANY]</span><span>OCTOBER 2026 · PRESS → OR TAP</span></div>
+</section>
+
+<!-- 2 TODAY -->
+<section class="scene light" data-dur="9" aria-label="Today">
+  <div class="col" style="gap:14px">
+    <div class="eyebrow a">Today</div>
+    <div class="h2 a" style="--d:.1">Running rooms means juggling five places at once</div>
+  </div>
+  <div class="row" style="flex:1;align-items:center;justify-content:space-between">
+    <div class="col" style="gap:22px;max-width:560px">
+      <div class="lead a" style="--d:.3">Who paid, which bill is due, when to declare a lease, who reported a leak on WhatsApp. It all lives in different places, and in your head.</div>
+      <div class="lead a" style="--d:2.4;color:var(--ink);font-weight:700">The platform brings it into one screen.</div>
+    </div>
+    <div class="screen a" style="--k:fade;--d:1.6">
+      <div class="small" style="color:#8E97A8;font-family:var(--mono);font-size:16px;letter-spacing:.08em">ONE PLACE</div>
+      <div class="chip a" style="--k:gather;--x:-620px;--y:-120px;--r:-9deg;--d:.5"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#2142D9" stroke-width="1.8" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 10h16M10 4v16"/></svg>Rent spreadsheet</div>
+      <div class="chip a" style="--k:gather;--x:-760px;--y:40px;--r:7deg;--d:.65"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#2142D9" stroke-width="1.8" aria-hidden="true"><path d="M13 3L5 14h6l-1 7 8-11h-6z"/></svg>Bills by email and paper</div>
+      <div class="chip a" style="--k:gather;--x:-540px;--y:150px;--r:-5deg;--d:.8"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#2142D9" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>AADE deadlines</div>
+      <div class="chip a" style="--k:gather;--x:-700px;--y:-20px;--r:10deg;--d:.95"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#2142D9" stroke-width="1.8" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"/></svg>WhatsApp messages</div>
+      <div class="chip a" style="--k:gather;--x:-580px;--y:-260px;--r:-12deg;--d:1.1"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#2142D9" stroke-width="1.8" aria-hidden="true"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4"/></svg>Paper contracts</div>
+    </div>
+  </div>
+  <div class="foot"><span>[YOUR COMPANY]</span><span>02</span></div>
+</section>
+
+<!-- 3 TWO SIDES -->
+<section class="scene bluebg" data-dur="8" aria-label="One platform, two sides">
+  <div class="col" style="gap:14px">
+    <div class="eyebrow a" style="color:#C9D3FF">The idea</div>
+    <div class="h2 a" style="--d:.1;color:#fff">One platform. A screen for you, an app for each tenant.</div>
+  </div>
+  <div class="row" style="flex:1;align-items:flex-end;justify-content:center;gap:70px">
+    <div class="col a" style="--k:fromleft;--d:.4;align-items:center;gap:0">
+      <div class="laptop">
+        <div class="lscreen">
+          <div class="lside"><i class="on"></i><i></i><i></i><i></i><i></i><i></i></div>
+          <div class="lmain">
+            <div style="font:800 20px var(--display);color:var(--ink)">October at a glance</div>
+            <div class="kpis">
+              <div class="kpi">Rooms let<b>11/12</b></div>
+              <div class="kpi">Rent in<b>€3,120</b></div>
+              <div class="kpi">Bills due<b>€612</b></div>
+              <div class="kpi">Repairs<b>3</b></div>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px">
+              <i style="height:46px;border-radius:8px;background:#DFE5FC"></i><i style="height:46px;border-radius:8px;background:#DFE5FC"></i><i style="height:46px;border-radius:8px;background:#FCE7DB"></i><i style="height:46px;border-radius:8px;background:#DFE5FC"></i><i style="height:46px;border-radius:8px;background:#DFE5FC"></i><i style="height:46px;border-radius:8px;border:2px dashed #2142D9;box-sizing:border-box"></i>
+              <i style="height:46px;border-radius:8px;background:#DFE5FC"></i><i style="height:46px;border-radius:8px;background:#DFE5FC"></i><i style="height:46px;border-radius:8px;background:#DFE5FC"></i><i style="height:46px;border-radius:8px;background:#DFE5FC"></i><i style="height:46px;border-radius:8px;background:#FCE7DB"></i><i style="height:46px;border-radius:8px;background:#DFE5FC"></i>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <div style="height:34px;border-radius:8px;background:#fff;border:1px solid var(--line);display:flex;align-items:center;padding:0 12px;font:600 13px var(--body);color:var(--sun-ink)">Declare Jonas’s lease on myAADE · 40 days left</div>
+              <div style="height:34px;border-radius:8px;background:#fff;border:1px solid var(--line);display:flex;align-items:center;padding:0 12px;font:600 13px var(--body);color:var(--ink)">Electricity, Kypseli · split sent to 5 tenants</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="lbase"></div>
+      <div style="font:700 22px var(--body);color:#fff;padding-top:18px">Owner, on any computer</div>
+    </div>
+    <div class="col a" style="--k:fromright;--d:.7;align-items:center;gap:18px">
+      <div class="phone" style="height:520px;width:260px">
+        <div class="pscreen">
+          <div style="font:800 20px var(--display)">Hi Lina</div>
+          <div style="background:var(--ink);color:#F2F4F8;border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:4px"><span style="font:600 12px var(--body);color:#B9C1D0">Next rent · Nov 1</span><b class="num" style="font-size:28px">€323.48</b></div>
+          <div style="background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px;font:600 13px var(--body)">My share of bills · €23.48</div>
+          <div style="background:var(--blue);color:#fff;border-radius:14px;padding:14px;font:700 15px var(--body)">Report a problem</div>
+          <div style="background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px;font:600 13px var(--body)">Wi-Fi, rules, cleaning rota</div>
+        </div>
+      </div>
+      <div style="font:700 22px var(--body);color:#fff">Tenants, on their phone</div>
+    </div>
+  </div>
+</section>
+
+<!-- 4 CORE -->
+<section class="scene light" data-dur="8" aria-label="Core features">
+  <div class="col" style="gap:14px">
+    <div class="eyebrow a">The platform</div>
+    <div class="h2 a" style="--d:.1">Six things it does every single day</div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:22px;flex:1;align-content:start">
+    <div class="card a" style="--k:pop;--d:.3"><div class="col" style="gap:10px"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#2142D9" stroke-width="1.8" aria-hidden="true"><path d="M3 11l9-7 9 7v9H3z"/><path d="M9 20v-6h6v6"/></svg><div style="font:800 28px var(--display)">Rooms &amp; occupancy</div><div class="small" style="color:var(--ink2)">Every apartment and room, who lives there, which one frees up next.</div></div></div>
+    <div class="card a" style="--k:pop;--d:.42"><div class="col" style="gap:10px"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#2142D9" stroke-width="1.8" aria-hidden="true"><path d="M3 7h18v10H3z"/><circle cx="12" cy="12" r="2.5"/></svg><div style="font:800 28px var(--display)">Rent tracking</div><div class="small" style="color:var(--ink2)">Paid, due or late, per tenant and month, with reminders that go out alone.</div></div></div>
+    <div class="card a" style="--k:pop;--d:.54"><div class="col" style="gap:10px"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#2142D9" stroke-width="1.8" aria-hidden="true"><path d="M13 3L5 14h6l-1 7 8-11h-6z"/></svg><div style="font:800 28px var(--display)">Bills, split fairly</div><div class="small" style="color:var(--ink2)">Electricity, water, internet and building fees, shared by days lived.</div></div></div>
+    <div class="card a" style="--k:pop;--d:.66"><div class="col" style="gap:10px"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#2142D9" stroke-width="1.8" aria-hidden="true"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4M10 13h5M10 17h5"/></svg><div style="font:800 28px var(--display)">Leases &amp; AADE</div><div class="small" style="color:var(--ink2)">Contracts stored, declarations prepared, deadlines never missed.</div></div></div>
+    <div class="card a" style="--k:pop;--d:.78"><div class="col" style="gap:10px"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#2142D9" stroke-width="1.8" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/></svg><div style="font:800 28px var(--display)">Repairs</div><div class="small" style="color:var(--ink2)">From the tenant’s photo to the fixed tap, with the cost logged.</div></div></div>
+    <div class="card a" style="--k:pop;--d:.9"><div class="col" style="gap:10px"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#2142D9" stroke-width="1.8" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><div style="font:800 28px var(--display)">Taxes &amp; exports</div><div class="small" style="color:var(--ink2)">Yearly rental income ready for the E2 form and your accountant.</div></div></div>
+  </div>
+  <div class="foot"><span>[YOUR COMPANY]</span><span>04</span></div>
+</section>
+
+<!-- 5 BILLS -->
+<section class="scene paperbg" data-dur="9" aria-label="Bill splitting">
+  <div class="col" style="gap:14px">
+    <div class="eyebrow a">Bills &amp; charges</div>
+    <div class="h2 a" style="--d:.1">A bill comes in. Five tenants know their share a minute later.</div>
+  </div>
+  <div class="row" style="flex:1;align-items:center;gap:56px">
+    <div class="card a" style="--k:fromleft;--d:.3;width:360px;flex:none;display:flex;flex-direction:column;gap:12px;background:#fff">
+      <span class="tag t-sun" style="align-self:flex-start">Electricity · PDF</span>
+      <div class="small">Kypseli apartment · Sept 1 to Oct 31</div>
+      <div class="num" style="font-size:58px;font-weight:600;color:var(--ink)">€<span class="count" data-to="214.60" data-dec="2" data-delay="0.4">214.60</span></div>
+      <div class="small">Read automatically, checked by you, split by days lived.</div>
+    </div>
+    <svg width="70" height="30" viewBox="0 0 70 30" class="a" style="--k:fromleft;--d:.8;flex:none" aria-hidden="true"><path d="M2 15h60M50 4l12 11-12 11" fill="none" stroke="#2142D9" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <div class="split" style="flex:1">
+      <div class="srow a" style="--k:fade;--d:1"><span>Elena · 61 days</span><div class="track"><i style="width:100%;--d:1.1"></i></div><span class="num" style="text-align:right">€47.78</span></div>
+      <div class="srow a" style="--k:fade;--d:1.15"><span>Youssef · 61 days</span><div class="track"><i style="width:100%;--d:1.25"></i></div><span class="num" style="text-align:right">€47.78</span></div>
+      <div class="srow a" style="--k:fade;--d:1.3"><span>Marco · 61 days</span><div class="track"><i style="width:100%;--d:1.4"></i></div><span class="num" style="text-align:right">€47.78</span></div>
+      <div class="srow a" style="--k:fade;--d:1.45"><span>Anna · 61 days</span><div class="track"><i style="width:100%;--d:1.55"></i></div><span class="num" style="text-align:right">€47.78</span></div>
+      <div class="srow a" style="--k:fade;--d:1.6"><span>Lina · 30 days</span><div class="track"><i style="width:49%;--d:1.7;background:var(--sun)"></i></div><span class="num" style="text-align:right">€23.48</span></div>
+      <div class="a" style="--d:2.4;display:flex;gap:12px;padding-top:8px"><span class="tag t-green">Sent to 5 tenants</span><span class="tag t-grey">Original bill attached</span></div>
+    </div>
+  </div>
+  <div class="foot"><span>[YOUR COMPANY] · EXAMPLE FIGURES</span><span>05</span></div>
+</section>
+
+<!-- 6 AADE -->
+<section class="scene light" data-dur="9" aria-label="AADE lease declarations">
+  <div class="col" style="gap:14px">
+    <div class="eyebrow a">Leases &amp; AADE</div>
+    <div class="h2 a" style="--d:.1">No lease declaration is ever late again</div>
+  </div>
+  <div class="tl" style="flex:1;align-content:center">
+    <div class="rail a" style="--k:drawx;--d:.4"></div>
+    <div class="step a" style="--d:.5"><span class="dot"></span><span class="tag t-blue" style="align-self:flex-start">Oct 1</span><div style="font:800 26px var(--display)">Lease starts</div><div class="small" style="color:var(--ink2)">Signed in the app, stored with the room.</div></div>
+    <div class="step a" style="--d:.8"><span class="dot"></span><span class="tag t-sun" style="align-self:flex-start">By Nov 30</span><div style="font:800 26px var(--display)">Declared on myAADE</div><div class="small" style="color:var(--ink2)">Every field prepared. You make the final click.</div></div>
+    <div class="step a" style="--d:1.1"><span class="dot"></span><span class="tag t-blue" style="align-self:flex-start">Next</span><div style="font:800 26px var(--display)">Tenant accepts</div><div class="small" style="color:var(--ink2)">Their app reminds them. It also counts for their rent refund.</div></div>
+    <div class="step a" style="--d:1.4"><span class="dot"></span><span class="tag t-grey" style="align-self:flex-start">Jun 30</span><div style="font:800 26px var(--display)">Lease ends</div><div class="small" style="color:var(--ink2)">Deposit, check-out photos and the room relisted.</div></div>
+    <div class="step a" style="--d:1.7"><span class="dot"></span><span class="tag t-sun" style="align-self:flex-start">By Jul 31</span><div style="font:800 26px var(--display)">End declared</div><div class="small" style="color:var(--ink2)">Same reminder, same prepared fields.</div></div>
+  </div>
+  <div class="a" style="--k:pop;--d:2.2;align-self:flex-start;display:flex;align-items:center;gap:16px;padding:18px 24px;border-radius:18px;background:var(--night);color:#fff;font:700 24px var(--body)"><span class="num" style="font-size:44px;color:var(--sun)" ><span class="count" data-to="40" data-dec="0" data-delay="2.3">40</span></span> days left to declare Jonas’s lease</div>
+  <div class="foot"><span>[YOUR COMPANY]</span><span>06</span></div>
+</section>
+
+<!-- 7 TENANT -->
+<section class="scene paperbg" data-dur="9" aria-label="Tenant app">
+  <div class="row" style="flex:1;gap:80px;align-items:center">
+    <div class="phone a" style="--k:rise;--d:.2">
+      <div class="pscreen">
+        <div style="font:800 22px var(--display)">Report a problem</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
+          <span style="border:2px solid var(--ink);border-radius:10px;padding:10px 4px;font:700 12px var(--body);text-align:center">Plumbing</span>
+          <span style="border:1px solid var(--line);background:#fff;border-radius:10px;padding:10px 4px;font:600 12px var(--body);text-align:center">Electric</span>
+          <span style="border:1px solid var(--line);background:#fff;border-radius:10px;padding:10px 4px;font:600 12px var(--body);text-align:center">Wi-Fi</span>
+        </div>
+        <div style="background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px;font:500 14px var(--body)">The tap keeps dripping after I close it.</div>
+        <div style="height:120px;border-radius:12px;background:linear-gradient(160deg,#DCE6F6,#C3D0E6)"></div>
+        <div style="margin-top:auto;background:var(--blue);color:#fff;border-radius:14px;padding:14px;font:700 15px var(--body);text-align:center">Send report</div>
+        <div class="a" style="--k:pop;--d:1.6;position:absolute;left:14px;right:14px;bottom:80px;background:var(--green);color:#fff;border-radius:14px;padding:12px 14px;font:700 14px var(--body);display:flex;gap:8px;align-items:center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Sent · plumber booked Thu 10:00</div>
+      </div>
+    </div>
+    <div class="col" style="flex:1;gap:26px">
+      <div class="eyebrow a">For tenants</div>
+      <div class="h2 a" style="--d:.1;max-width:760px">Their rent, their share and their problems, in one app</div>
+      <div class="col" style="gap:14px">
+        <div class="a" style="--k:fromright;--d:.6;display:flex;gap:16px;align-items:baseline;font:600 25px var(--body)"><span class="tag t-blue">Pay</span>Rent and their share of bills, with the details one tap away</div>
+        <div class="a" style="--k:fromright;--d:.8;display:flex;gap:16px;align-items:baseline;font:600 25px var(--body)"><span class="tag t-blue">Report</span>A problem with a photo, then follow the repair</div>
+        <div class="a" style="--k:fromright;--d:1;display:flex;gap:16px;align-items:baseline;font:600 25px var(--body)"><span class="tag t-blue">Know</span>Contract, Wi-Fi, rules, cleaning turns, AADE acceptance</div>
+      </div>
+      <div class="small a" style="--d:1.3">Works in the phone’s browser in Greek, English or French. No app store needed to start.</div>
+    </div>
+  </div>
+  <div class="foot"><span>[YOUR COMPANY]</span><span>07</span></div>
+</section>
+
+<!-- 8 MORE FEATURES -->
+<section class="scene light" data-dur="10" aria-label="More features">
+  <div class="col" style="gap:14px">
+    <div class="eyebrow a">And everything around it</div>
+    <div class="h2 a" style="--d:.1">Twelve more features, no AI needed</div>
+  </div>
+  <div class="feat">
+    <div class="card a" style="--k:pop;--d:.25"><h4>E-signature</h4><p>Leases signed on the phone, filed with the room.</p></div>
+    <div class="card a" style="--k:pop;--d:.32"><h4>Deposits</h4><p>Held, deducted with photo proof, returned on time.</p></div>
+    <div class="card a" style="--k:pop;--d:.39"><h4>Check-in, check-out</h4><p>Photo inventory, compared side by side at the end.</p></div>
+    <div class="card a" style="--k:pop;--d:.46"><h4>Occupancy calendar</h4><p>Who leaves when, and which room frees up next.</p></div>
+    <div class="card a" style="--k:pop;--d:.53"><h4>Profit per room</h4><p>Rent minus bills and repairs, per room and apartment.</p></div>
+    <div class="card a" style="--k:pop;--d:.6"><h4>Bank matching</h4><p>Import the bank statement and rents tick themselves off.</p></div>
+    <div class="card a" style="--k:pop;--d:.67"><h4>Maintenance plan</h4><p>AC cleaning, water heater, detectors, on a schedule.</p></div>
+    <div class="card a" style="--k:pop;--d:.74"><h4>Expiry alerts</h4><p>Energy certificate, insurance, supplier contracts.</p></div>
+    <div class="card a" style="--k:pop;--d:.81"><h4>Team access</h4><p>Cleaner, handyman, accountant: each sees only their part.</p></div>
+    <div class="card a" style="--k:pop;--d:.88"><h4>Document vault</h4><p>Contracts, bills and receipts, searchable in seconds.</p></div>
+    <div class="card a" style="--k:pop;--d:.95"><h4>House rules &amp; rota</h4><p>Cleaning turns and rules in every tenant’s app.</p></div>
+    <div class="card a" style="--k:pop;--d:1.02"><h4>Three languages</h4><p>Greek, English and French, for you and your tenants.</p></div>
+  </div>
+  <div class="foot"><span>[YOUR COMPANY]</span><span>08</span></div>
+</section>
+
+<!-- 9 AI TEAM -->
+<section class="scene dark" data-dur="11" aria-label="AI team">
+  <div class="row" style="justify-content:space-between;align-items:flex-end">
+    <div class="col" style="gap:14px">
+      <div class="eyebrow a">Your AI team</div>
+      <div class="h2 a" style="--d:.1">Twelve agents. One rule: you approve.</div>
+    </div>
+    <div class="a" style="--d:.3;display:flex;gap:10px"><span class="tag" style="background:#3A2216;color:#FFC6A8">Grows the business</span><span class="tag" style="background:#1C2B5F;color:#C9D3FF">Runs the houses</span><span class="tag" style="background:#173A28;color:#AEE6C6">Handles money &amp; paperwork</span></div>
+  </div>
+  <div class="team">
+    <div class="teamcol">
+      <div class="teamhead a" style="--d:.4;color:#FFC6A8">Growth</div>
+      <div class="agent new a" style="--k:fromleft;--d:.5"><div class="av" style="background:#5A2A12"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FFC6A8" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg></div><div><b>Apartment scout<span class="newpill">NEW</span></b><span>Finds apartments that work for renting by the room.</span></div></div>
+      <div class="agent new a" style="--k:fromleft;--d:.6"><div class="av" style="background:#5A2A12"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FFC6A8" stroke-width="2" aria-hidden="true"><path d="M4 18l6-6 4 4 6-8"/></svg></div><div><b>Pricing advisor<span class="newpill">NEW</span></b><span>Suggests the right rent per room from the market.</span></div></div>
+      <div class="agent new a" style="--k:fromleft;--d:.7"><div class="av" style="background:#5A2A12"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FFC6A8" stroke-width="2" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"/></svg></div><div><b>Listing &amp; leasing<span class="newpill">NEW</span></b><span>Posts free rooms, answers inquiries, books viewings.</span></div></div>
+      <div class="agent new a" style="--k:fromleft;--d:.8"><div class="av" style="background:#5A2A12"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FFC6A8" stroke-width="2" aria-hidden="true"><path d="M7 3h7l4 4v14H7z"/><path d="M10 14l2 2 4-4"/></svg></div><div><b>Applicant check<span class="newpill">NEW</span></b><span>Collects documents and flags what is missing.</span></div></div>
+    </div>
+    <div class="teamcol">
+      <div class="teamhead a" style="--d:.9;color:#C9D3FF">Houses</div>
+      <div class="agent a" style="--k:rise;--d:1"><div class="av" style="background:#1C2B5F"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#C9D3FF" stroke-width="2" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"/><path d="M9 10h6"/></svg></div><div><b>Tenant assistant</b><span>Answers tenants day and night, in their language.</span></div></div>
+      <div class="agent a" style="--k:rise;--d:1.1"><div class="av" style="background:#1C2B5F"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#C9D3FF" stroke-width="2" aria-hidden="true"><path d="M12 8v5M12 16.5v.5"/><circle cx="12" cy="12" r="9"/></svg></div><div><b>Issue triage</b><span>Sorts reports by urgency and books the craftsman.</span></div></div>
+      <div class="agent new a" style="--k:rise;--d:1.2"><div class="av" style="background:#5A2A12"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FFC6A8" stroke-width="2" aria-hidden="true"><path d="M3 6l9 7 9-7"/><rect x="3" y="5" width="18" height="14" rx="2"/></svg></div><div><b>Supplier liaison<span class="newpill">NEW</span></b><span>Contacts power, water and internet providers.</span></div></div>
+      <div class="agent new a" style="--k:rise;--d:1.3"><div class="av" style="background:#5A2A12"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FFC6A8" stroke-width="2" aria-hidden="true"><path d="M4 12a8 8 0 0 1 14-5l2-2v6h-6l2-2a5 5 0 1 0 1 6"/></svg></div><div><b>Turnover coordinator<span class="newpill">NEW</span></b><span>Plans cleaning, check-out photos and the deposit.</span></div></div>
+    </div>
+    <div class="teamcol">
+      <div class="teamhead a" style="--d:1.4;color:#AEE6C6">Money &amp; paperwork</div>
+      <div class="agent a" style="--k:fromright;--d:1.5"><div class="av" style="background:#173A28"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#AEE6C6" stroke-width="2" aria-hidden="true"><path d="M13 3L5 14h6l-1 7 8-11h-6z"/></svg></div><div><b>Bill reader</b><span>Reads every bill and splits it per room.</span></div></div>
+      <div class="agent new a" style="--k:fromright;--d:1.6"><div class="av" style="background:#5A2A12"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FFC6A8" stroke-width="2" aria-hidden="true"><path d="M3 7h18v10H3z"/><circle cx="12" cy="12" r="2.5"/></svg></div><div><b>Rent collector<span class="newpill">NEW</span></b><span>Matches payments, sends friendly reminders.</span></div></div>
+      <div class="agent a" style="--k:fromright;--d:1.7"><div class="av" style="background:#173A28"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#AEE6C6" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg></div><div><b>Deadline watchdog</b><span>AADE, ENFIA, lease ends, expiring certificates.</span></div></div>
+      <div class="agent a" style="--k:fromright;--d:1.8"><div class="av" style="background:#173A28"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#AEE6C6" stroke-width="2" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></div><div><b>Accounting assistant</b><span>Yearly summary ready for E2 and the accountant.</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- 10 SCOUT -->
+<section class="scene light" data-dur="10" aria-label="Apartment scout agent">
+  <div class="row" style="flex:1;gap:64px">
+    <div class="col" style="width:520px;flex:none;gap:22px">
+      <div class="eyebrow a" style="color:var(--sun-ink)">Agent · Growth</div>
+      <div class="h2 a" style="--d:.1">Apartment scout</div>
+      <div class="lead a" style="--d:.25">Every morning it scans rental and sale listings in your areas, then ranks the apartments that would work for renting by the room.</div>
+      <div class="col a" style="--d:.45;gap:10px;font:600 22px var(--body)">
+        <div>Rooms the layout can hold</div>
+        <div>Expected income per room</div>
+        <div>Margin after rent and bills</div>
+      </div>
+      <div class="small a" style="--d:.6">Follows each website’s terms. You pick which ones to visit.</div>
+    </div>
+    <div class="col" style="flex:1;gap:16px;justify-content:center">
+      <div class="search a" style="--k:fade;--d:.4"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#9FB3FF" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg><span class="type" style="--w:34ch;--n:34;--d:.6">Athens · 4+ bedrooms · under €1,200</span></div>
+      <div class="listing a" style="--k:pop;--d:2.1"><div class="thumb"></div><div class="col" style="gap:8px"><div style="font:800 26px var(--display)">Ampelokipi · 120 m² · 5 bedrooms</div><div class="kv"><span>Asking <strong>€1,150</strong></span><span>Room income <strong>€1,450</strong></span><span>Margin <strong style="color:var(--green)">+€300/mo</strong></span></div></div><div class="score" style="background:var(--green-soft)"><b>92</b>fit</div></div>
+      <div class="listing a" style="--k:pop;--d:2.35"><div class="thumb"></div><div class="col" style="gap:8px"><div style="font:800 26px var(--display)">Patisia · 105 m² · 4 bedrooms</div><div class="kv"><span>Asking <strong>€850</strong></span><span>Room income <strong>€1,080</strong></span><span>Margin <strong style="color:var(--green)">+€230/mo</strong></span></div></div><div class="score" style="background:var(--blue-soft)"><b>81</b>fit</div></div>
+      <div class="listing a" style="--k:pop;--d:2.6"><div class="thumb"></div><div class="col" style="gap:8px"><div style="font:800 26px var(--display)">Pangrati · 95 m² · 4 bedrooms</div><div class="kv"><span>Asking <strong>€980</strong></span><span>Room income <strong>€1,160</strong></span><span>Margin <strong style="color:var(--green)">+€180/mo</strong></span></div></div><div class="score" style="background:#E6E9EE"><b>77</b>fit</div></div>
+    </div>
+  </div>
+  <div class="foot"><span>[YOUR COMPANY] · EXAMPLE LISTINGS</span><span>10</span></div>
+</section>
+
+<!-- 11 LEASING -->
+<section class="scene paperbg" data-dur="11" aria-label="Listing and leasing agent">
+  <div class="row" style="flex:1;gap:64px">
+    <div class="col" style="width:520px;flex:none;gap:22px">
+      <div class="eyebrow a" style="color:var(--sun-ink)">Agent · Growth</div>
+      <div class="h2 a" style="--d:.1">Listing &amp; leasing</div>
+      <div class="lead a" style="--d:.25">A room frees up. The agent writes the ad in Greek and English, posts it, answers every message and books the viewings in your calendar.</div>
+      <div class="a" style="--d:.5;display:flex;flex-wrap:wrap;gap:10px"><span class="tag t-blue">Facebook Page</span><span class="tag t-blue">Messenger</span><span class="tag t-blue">Email</span><span class="tag t-blue">Your website</span><span class="tag t-blue">Listing sites</span></div>
+      <div class="small a" style="--d:.7">Facebook groups and Marketplace allow no automatic posting. The agent prepares the post and you share it in one tap.</div>
+    </div>
+    <div class="col" style="flex:1;gap:14px;justify-content:center">
+      <div class="alert a" style="--k:pop;--d:.5;background:var(--blue-soft);color:var(--blue)"><span class="live" style="background:var(--blue)"></span>Room 4, Pangrati, free from Nov 1 · ad published</div>
+      <div class="bub in a" style="--k:pop;--d:1.2"><small>Messenger · 18:42</small>Hi! Is the room still available? I’m a student from Spain, starting in November.</div>
+      <div class="bub out a" style="--k:pop;--d:2"><small>Agent · 18:42</small>Yes, from Nov 1 at €290 a month, bills split by days. Can you visit Thursday 18:00 or Saturday 11:00?</div>
+      <div class="bub in a" style="--k:pop;--d:2.8"><small>Messenger · 18:45</small>Saturday works!</div>
+      <div class="a" style="--k:pop;--d:3.4;align-self:flex-end;display:flex;gap:10px"><span class="tag t-green">Viewing booked · Sat 11:00</span><span class="tag t-grey">Added to your calendar</span></div>
+    </div>
+  </div>
+  <div class="foot"><span>[YOUR COMPANY] · EXAMPLE CONVERSATION</span><span>11</span></div>
+</section>
+
+<!-- 12 SUPPLIER -->
+<section class="scene light" data-dur="11" aria-label="Supplier liaison agent">
+  <div class="row" style="flex:1;gap:64px">
+    <div class="col" style="width:520px;flex:none;gap:22px">
+      <div class="eyebrow a" style="color:var(--sun-ink)">Agent · Houses</div>
+      <div class="h2 a" style="--d:.1">Supplier liaison</div>
+      <div class="lead a" style="--d:.25">Internet down, power cut, a bill far above normal: it contacts the provider by email or message with the right contract details, follows up, and keeps tenants posted.</div>
+      <div class="small a" style="--d:.5">Writes from your address. New kinds of requests wait for your OK.</div>
+    </div>
+    <div class="col" style="flex:1;gap:14px;justify-content:center">
+      <div class="alert a" style="--k:pop;--d:.4"><span class="live"></span>Sofia: no internet in Pangrati since 9:00</div>
+      <div class="a" style="--d:1;display:flex;gap:10px"><span class="tag t-grey">Checked: whole apartment</span><span class="tag t-grey">Router restart asked: still down</span></div>
+      <div class="mail a" style="--k:pop;--d:1.6">
+        <div class="mh"><span>To</span><b>Internet provider · support</b><span>Subject</span><b>Outage at [address] · contract [no.]</b></div>
+        <div class="mb">Hello, the line at [address] has been down since 9:00 today. The router was restarted. Please send a technician. Five tenants depend on this connection.</div>
+      </div>
+      <div class="bub in a" style="--k:pop;--d:2.6;max-width:none"><small>Provider · 11:20</small>Ticket opened. Technician visit Thursday between 10:00 and 14:00.</div>
+      <div class="a" style="--k:pop;--d:3.2;display:flex;gap:10px"><span class="tag t-green">4 tenants informed</span><span class="tag t-blue">Follow-up set for Thursday 14:00</span></div>
+    </div>
+  </div>
+  <div class="foot"><span>[YOUR COMPANY] · EXAMPLE CASE</span><span>12</span></div>
+</section>
+
+<!-- 13 MONTH -->
+<section class="scene dark" data-dur="11" aria-label="A month on autopilot">
+  <div class="col" style="gap:14px">
+    <div class="eyebrow a">A month on autopilot</div>
+    <div class="h2 a" style="--d:.1;color:#fff">What happens while you do something else</div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px;flex:1;align-content:center">
+    <div class="agent a" style="--k:pop;--d:.4"><div class="av" style="background:#1C2B5F;font:700 15px var(--mono);color:#C9D3FF">D1</div><div><b>Rent reminders out</b><span>Payments matched as they land in the bank.</span></div></div>
+    <div class="agent a" style="--k:pop;--d:.6"><div class="av" style="background:#173A28;font:700 15px var(--mono);color:#AEE6C6">D3</div><div><b>Bill arrives, split sent</b><span>Each tenant gets their share and the PDF.</span></div></div>
+    <div class="agent a" style="--k:pop;--d:.8"><div class="av" style="background:#3A2216;font:700 15px var(--mono);color:#FFC6A8">D5</div><div><b>Late rent followed up</b><span>A polite message, then an alert to you.</span></div></div>
+    <div class="agent a" style="--k:pop;--d:1"><div class="av" style="background:#1C2B5F;font:700 15px var(--mono);color:#C9D3FF">D9</div><div><b>Leak reported, fixed</b><span>Plumber booked, tenant told, cost logged.</span></div></div>
+    <div class="agent a" style="--k:pop;--d:1.2"><div class="av" style="background:#3A2216;font:700 15px var(--mono);color:#FFC6A8">D12</div><div><b>Room freeing up</b><span>Ad live 30 days ahead, viewings booked.</span></div></div>
+    <div class="agent a" style="--k:pop;--d:1.4"><div class="av" style="background:#3A2216;font:700 15px var(--mono);color:#FFC6A8">D18</div><div><b>New apartment found</b><span>Scout sends a shortlist with the margin.</span></div></div>
+    <div class="agent a" style="--k:pop;--d:1.6"><div class="av" style="background:#1C2B5F;font:700 15px var(--mono);color:#C9D3FF">D22</div><div><b>Provider chased</b><span>Internet fixed, tenants kept informed.</span></div></div>
+    <div class="agent a" style="--k:pop;--d:1.8"><div class="av" style="background:#173A28;font:700 15px var(--mono);color:#AEE6C6">D27</div><div><b>AADE deadline caught</b><span>Declaration prepared, waiting for your click.</span></div></div>
+    <div class="agent a" style="--k:pop;--d:2"><div class="av" style="background:#173A28;font:700 15px var(--mono);color:#AEE6C6">D30</div><div><b>Your monthly report</b><span>Income, costs and profit per room, in one page.</span></div></div>
+  </div>
+  <div class="foot"><span>[YOUR COMPANY]</span><span>13</span></div>
+</section>
+
+<!-- 14 CONTROL + FOUNDATION -->
+<section class="scene paperbg" data-dur="9" aria-label="You stay in charge">
+  <div class="col" style="gap:14px">
+    <div class="eyebrow a">You stay in charge</div>
+    <div class="h2 a" style="--d:.1">The agents prepare. You decide.</div>
+  </div>
+  <div class="row" style="flex:1;align-items:center;gap:40px">
+    <div class="col" style="flex:1;gap:18px">
+      <div class="card a" style="--k:fromleft;--d:.3;background:#fff"><div style="font:800 28px var(--display)">Approval before anything new</div><div class="small" style="color:var(--ink2);padding-top:6px">Nothing is paid, filed or sent to someone new without your OK.</div></div>
+      <div class="card a" style="--k:fromleft;--d:.45;background:#fff"><div style="font:800 28px var(--display)">Every action logged</div><div class="small" style="color:var(--ink2);padding-top:6px">See who did what, when, and undo where it can be undone.</div></div>
+      <div class="card a" style="--k:fromleft;--d:.6;background:#fff"><div style="font:800 28px var(--display)">Your data, your server</div><div class="small" style="color:var(--ink2);padding-top:6px">Hosted in the EU. Tenants’ data stays private.</div></div>
+    </div>
+    <div class="a" style="--k:fromright;--d:.8;flex:1;background:var(--night);color:#fff;border-radius:28px;padding:40px;display:flex;flex-direction:column;gap:18px">
+      <div class="eyebrow">Foundation</div>
+      <div style="font:800 40px/1.1 var(--display)">Built on open source, made for renting by the room</div>
+      <div style="font:500 22px/1.5 var(--body);color:#B9C1D0">We start from OpenKOS, an open-source platform for room rentals, and adapt it to Greece. You own the result.</div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px"><span class="tag" style="background:#1C2B5F;color:#C9D3FF">No fee per room</span><span class="tag" style="background:#1C2B5F;color:#C9D3FF">Apache 2.0 licence</span><span class="tag" style="background:#1C2B5F;color:#C9D3FF">Laravel + React</span></div>
+    </div>
+  </div>
+  <div class="foot"><span>[YOUR COMPANY]</span><span>14</span></div>
+</section>
+
+<!-- 15 PLAN -->
+<section class="scene light" data-dur="9" aria-label="Plan">
+  <div class="col" style="gap:14px">
+    <div class="eyebrow a">Plan</div>
+    <div class="h2 a" style="--d:.1">Three phases, each one useful on its own</div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:22px;flex:1;align-content:start">
+    <div class="card phase a" style="--k:pop;--d:.3"><span class="tag t-blue" style="align-self:flex-start">Phase 1 · [__ weeks]</span><div style="font:800 32px var(--display)">The essentials</div><ul><li>Apartments, rooms, tenants</li><li>Rent, bank matching, reminders</li><li>Bills and fair split</li><li>Tenant app and repairs</li></ul></div>
+    <div class="card phase a" style="--k:pop;--d:.5"><span class="tag t-blue" style="align-self:flex-start">Phase 2 · [__ weeks]</span><div style="font:800 32px var(--display)">Greece, built in</div><ul><li>AADE helper and deadlines</li><li>E-signature, deposits, inventory</li><li>Taxes and accountant export</li><li>Greek, English, French</li></ul></div>
+    <div class="card phase a" style="--k:pop;--d:.7"><span class="tag t-sun" style="align-self:flex-start">Phase 3 · [__ weeks]</span><div style="font:800 32px var(--display)">The AI team</div><ul><li>Twelve agents, switched on one by one</li><li>Scout, pricing, listing and leasing</li><li>Supplier and turnover agents</li><li>Monthly autopilot report</li></ul></div>
+  </div>
+  <div class="a" style="--d:1;display:flex;gap:40px;font:700 26px var(--body)"><span>Build: <span class="num">[€____]</span></span><span>Hosting, AI and support: <span class="num">[€___ / month]</span></span></div>
+  <div class="foot"><span>[YOUR COMPANY]</span><span>15</span></div>
+</section>
+
+<!-- 16 NEXT -->
+<section class="scene dark" data-dur="10" aria-label="Next steps">
+  <div class="col" style="flex:1;justify-content:center;gap:40px">
+    <div class="eyebrow a">Next steps</div>
+    <div class="h1 a" style="--d:.15;max-width:1300px">Let’s put your first apartment on autopilot.</div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:28px;max-width:1300px">
+      <div class="col a" style="--d:.5;gap:10px;border-top:2px solid #2C3446;padding-top:20px"><span class="num" style="font-size:30px;color:var(--blue-light)">1</span><span style="font:600 25px/1.4 var(--body)">Walk through the screens together</span></div>
+      <div class="col a" style="--d:.65;gap:10px;border-top:2px solid #2C3446;padding-top:20px"><span class="num" style="font-size:30px;color:var(--blue-light)">2</span><span style="font:600 25px/1.4 var(--body)">Share your apartments, rooms and recent bills</span></div>
+      <div class="col a" style="--d:.8;gap:10px;border-top:2px solid #2C3446;padding-top:20px"><span class="num" style="font-size:30px;color:var(--blue-light)">3</span><span style="font:600 25px/1.4 var(--body)">Phase 1 starts on [date]</span></div>
+    </div>
+  </div>
+  <div class="foot a" style="--k:fade;--d:1"><span>[YOUR NAME] · [EMAIL] · [PHONE]</span><span>16</span></div>
+</section>
+
+    </div>
+  </div>
+  <div id="bar">
+    <button type="button" id="prev" aria-label="Previous scene"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
+    <button type="button" id="play" class="play"><svg id="playIco" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4l13 8-13 8z"/></svg><span id="playTxt">Play</span></button>
+    <button type="button" id="next" aria-label="Next scene"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
+    <div id="segs"></div>
+    <span id="count">01 / 16</span>
+    <button type="button" id="full" aria-label="Full screen"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+  </div>
+</div>
+
+<script>
+(function(){
+  var stage=document.getElementById('stage'), fit=document.getElementById('fit');
+  var scenes=[].slice.call(stage.querySelectorAll('.scene'));
+  var segs=document.getElementById('segs'), count=document.getElementById('count');
+  var cur=0, auto=false, timer=null;
+  scenes.forEach(function(s,i){var e=document.createElement('i');e.appendChild(document.createElement('b'));e.title='Scene '+(i+1);e.addEventListener('click',function(ev){ev.stopPropagation();go(i)});segs.appendChild(e)});
+  var segEls=[].slice.call(segs.children);
+  function size(){var w=fit.clientWidth,h=fit.clientHeight,s=Math.min(w/1600,h/900);stage.style.transform='scale('+s+') translate(-50%,-50%)';stage.style.left=(w/2)+'px';stage.style.top=(h/2)+'px';stage.style.transformOrigin='0 0';stage.style.transform='translate('+(-800*s)+'px,'+(-450*s)+'px) scale('+s+')'}
+  window.addEventListener('resize',size);size();
+  function counters(sc){[].forEach.call(sc.querySelectorAll('.count'),function(el){var to=parseFloat(el.dataset.to),dec=+el.dataset.dec||0,delay=(parseFloat(el.dataset.delay)||0)*1000,dur=1100;var reduce=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;if(reduce){el.textContent=to.toFixed(dec);return}el.textContent=(0).toFixed(dec);var t0=null;setTimeout(function(){function f(t){if(!t0)t0=t;var p=Math.min(1,(t-t0)/dur);p=1-Math.pow(1-p,3);el.textContent=(to*p).toFixed(dec).replace(/\B(?=(\d{3})+(?!\d))/g,',');if(p<1&&sc.classList.contains('on'))requestAnimationFrame(f);else el.textContent=to.toFixed(dec)}requestAnimationFrame(f)},delay)})}
+  function go(i){
+    i=Math.max(0,Math.min(scenes.length-1,i));
+    scenes[cur].classList.remove('on');
+    var sc=scenes[i]; sc.classList.remove('on'); void sc.offsetWidth; sc.classList.add('on');
+    cur=i;
+    segEls.forEach(function(e,k){e.className=k<i?'done':(k===i?'cur':'');var b=e.firstChild;var nb=b.cloneNode();e.replaceChild(nb,b)});
+    var d=(+sc.dataset.dur||8);segs.style.setProperty('--dur',d+'s');
+    count.textContent=String(i+1).padStart(2,'0')+' / '+scenes.length;
+    counters(sc);
+    clearTimeout(timer); if(auto){timer=setTimeout(function(){if(cur<scenes.length-1)go(cur+1);else setAuto(false)},d*1000)}
+  }
+  function setAuto(on){auto=on;segs.classList.toggle('auto',on);document.getElementById('playTxt').textContent=on?'Pause':'Play';document.getElementById('playIco').innerHTML=on?'<path d="M6 4h4v16H6zM14 4h4v16h-4z"/>':'<path d="M7 4l13 8-13 8z"/>';if(on){if(cur===scenes.length-1)go(0);else go(cur)}else clearTimeout(timer)}
+  document.getElementById('prev').addEventListener('click',function(){go(cur-1)});
+  document.getElementById('next').addEventListener('click',function(){go(cur+1)});
+  document.getElementById('play').addEventListener('click',function(){setAuto(!auto)});
+  document.getElementById('full').addEventListener('click',function(){try{var p=document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();if(p&&p.catch)p.catch(function(){})}catch(e){}});
+  stage.addEventListener('click',function(e){var r=stage.getBoundingClientRect();if(e.clientX<r.left+r.width*0.3)go(cur-1);else go(cur+1)});
+  document.addEventListener('keydown',function(e){if(e.target.closest&&e.target.closest('button'))if(e.key===' '||e.key==='Enter')return;if(e.key==='ArrowRight'||e.key==='PageDown'||e.key===' '){e.preventDefault();go(cur+1)}else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();go(cur-1)}else if(e.key==='Home'){go(0)}else if(e.key==='End'){go(scenes.length-1)}});
+  var tx=null;fit.addEventListener('touchstart',function(e){tx=e.touches[0].clientX},{passive:true});fit.addEventListener('touchend',function(e){if(tx===null)return;var dx=e.changedTouches[0].clientX-tx;if(Math.abs(dx)>40){go(cur+(dx<0?1:-1))}tx=null},{passive:true});
+  var start=0;try{var h=location.hash.match(/^#s(\d+)$/);if(h)start=Math.min(scenes.length-1,Math.max(0,+h[1]-1))}catch(e){}
+  go(start);
+})();
+</script>
+
+</body>
+</html>
